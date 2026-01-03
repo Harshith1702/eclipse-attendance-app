@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Eclipse Attendance App</title>
+<script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+<style>
+body {font-family: Arial, sans-serif; margin:0; background:#f4f7fc; color:#333;}
+/* App bar */
+.appbar {
+  display:flex; justify-content:space-between; align-items:center;
+  background:#fff; padding:10px 20px;
+  box-shadow:0 2px 8px rgba(0,0,0,0.1); position:sticky; top:0; z-index:100;
+}
+.appbar .logo { font-size:20px; font-weight:700; color:#4e5dff; }
+.appbar .menu { display:flex; align-items:center; gap:20px; }
+.appbar .menu button {
+  background:none; border:none; font-weight:600; cursor:pointer;
+  color:#333; font-size:15px; transition:.2s;
+}
+.appbar .menu button:hover { color:#4e5dff; }
+.appbar .profile { position:relative; cursor:pointer; }
+.appbar .profile img { width:35px; height:35px; border-radius:50%; }
+.dropdown {
+  display:none; position:absolute; right:0; top:45px;
+  background:#fff; box-shadow:0 4px 10px rgba(0,0,0,.1);
+  border-radius:8px; overflow:hidden; min-width:150px;
+}
+.dropdown a {
+  display:block; padding:10px; text-decoration:none; color:#333;
+}
+.dropdown a:hover { background:#f4f7fc; color:#4e5dff; }
+
+main {max-width:1000px; margin:30px auto; padding:20px; background:white; border-radius:10px; box-shadow:0 4px 10px rgba(0,0,0,.1);}
+.card {background:#fff; border-radius:10px; padding:20px; box-shadow:0 4px 10px rgba(0,0,0,.1); margin-bottom:20px;}
+.qr-container {margin:20px auto; text-align:center;}
+table {width:100%; border-collapse:collapse; margin-top:20px;}
+th,td {border:1px solid #ddd; padding:10px; text-align:center;}
+th {background:#4e5dff; color:white;}
+.badge {padding:5px 10px; border-radius:5px; color:white; font-weight:600;}
+.badge-present {background:green;}
+.badge-absent {background:red;}
+input, select, button {margin:5px 0; padding:8px; font-size:14px;}
+button {background:#4e5dff; border:none; color:white; border-radius:6px; cursor:pointer;}
+button:hover {background:#6e7bff;}
+.export-btn {background:#ff6e6e;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="appbar">
+    <div class="logo">✨ Eclipse Attendance</div>
+    <nav class="menu">
+      <button onclick="switchTab('teacher')">Teacher</button>
+      <button onclick="switchTab('student')">Student</button>
+      <div class="profile" onclick="toggleDropdown()">
+        <img src="https://cdn-icons-png.flaticon.com/512/1077/1077114.png" alt="profile">
+        <div class="dropdown" id="profile-dropdown">
+          <a href="#">Profile</a>
+          <a href="#">Settings</a>
+          <a href="#">Logout</a>
+        </div>
+      </div>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- Teacher Dashboard -->
+  <div id="teacher-dashboard">
+    <div class="card">
+      <h2>Create Attendance Session</h2>
+      <label>Session Name: </label>
+      <input type="text" id="session-name" placeholder="Enter Session (e.g., DBMS Lab)">
+      <label>Date: </label>
+      <input type="date" id="session-date">
+      <label>Section: </label>
+      <input type="text" id="session-section" placeholder="e.g., CSE-B">
+      <button onclick="startSession()">Start Session</button>
+      <p>Current Session: <span id="current-session">Not Started</span></p>
+    </div>
+
+    <div class="card">
+      <h2>Generate QR for Attendance</h2>
+      <div id="teacher-qr" class="qr-container"></div>
+      <button onclick="generateQRCode('teacher')">Generate QR Code</button>
+    </div>
+
+    <div class="card">
+      <h2>Attendance Table</h2>
+      <input type="text" id="search-name" placeholder="Search Name" oninput="filterAttendance()">
+      <select id="filter-status" onchange="filterAttendance()">
+        <option value="">All</option>
+        <option value="present">Present</option>
+        <option value="absent">Absent</option>
+      </select>
+      <button class="export-btn" onclick="exportCSV()">Export CSV</button>
+      <table id="attendance-table">
+        <thead><tr><th>Name</th><th>Status</th><th>Action</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Student Dashboard -->
+  <div id="student-dashboard" style="display:none">
+    <div class="card">
+      <h2>Student QR Scan</h2>
+      <p><b>Active Session:</b> <span id="student-session">None</span></p>
+      <div id="student-qr" class="qr-container"></div>
+      <select id="student-name-select" onchange="renderAttendanceHistory()">
+        <option value="">Select your name</option>
+      </select>
+      <p id="scan-status">Click "Scan QR" to mark attendance</p>
+      <button onclick="scanQRCode()">Scan QR</button>
+    </div>
+    <div class="card">
+      <h2>Your Attendance History</h2>
+      <table id="attendance-history">
+        <thead><tr><th>Session</th><th>Status</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+// ✅ Preloaded students
+const students = [
+  "Harshith",
+  "Steve","Billy","Akshath","Nancy","Dustin","Lucas","Max","Eleven","Mike","Will",
+  "Jim","Joyce","Jonathan","Robin","Akshay","Divya Sri","Hopper",
+  "Wednesday Addams","Enid Sinclair","Xavier","Dhanraj","Bianca",
+  "Ajax","Tyler Galpin","Weems","Jon Snow","Peter Parker","Bruce",
+  "Morticia","Shirisha","Millie","Dexter","Enola"
+];
+
+const attendance = {};
+students.forEach(s => attendance[s] = {status:"absent", sessions:[]});
+let currentSession = "Not Started";
+
+// Populate student dropdown
+const studentSelect = document.getElementById('student-name-select');
+students.forEach(name=>{
+  const opt = document.createElement('option'); opt.value=name; opt.textContent=name;
+  studentSelect.appendChild(opt);
+});
+
+// Toggle profile dropdown
+function toggleDropdown(){
+  const dropdown = document.getElementById("profile-dropdown");
+  dropdown.style.display = dropdown.style.display === "block" ? "none" : "block";
+}
+
+// Switch Tabs
+function switchTab(tab){
+  document.getElementById('teacher-dashboard').style.display = tab==='teacher'?'block':'none';
+  document.getElementById('student-dashboard').style.display = tab==='student'?'block':'none';
+  if(tab==='teacher'){ renderAttendanceTable(); }
+  else { generateQRCode('student'); renderAttendanceHistory(); }
+}
+
+// Start Session
+function startSession(){
+  const name = document.getElementById('session-name').value.trim();
+  const date = document.getElementById('session-date').value;
+  const section = document.getElementById('session-section').value.trim();
+  if(!name || !date || !section){
+    alert("Please enter session name, date and section");
+    return;
+  }
+  currentSession = `${name} - ${section} - ${date}`;
+  document.getElementById('current-session').textContent = currentSession;
+  document.getElementById('student-session').textContent = currentSession;
+  generateQRCode('teacher');
+  renderAttendanceTable();
+}
+
+// Generate QR
+function generateQRCode(role){
+  const text = currentSession+"-ECLIPSE-ATTENDANCE";
+  const container=document.getElementById(role==='teacher'?'teacher-qr':'student-qr');
+  container.innerHTML='';
+  new QRCode(container,{text:text,width:180,height:180,colorDark:"#4e5dff",colorLight:"#fff",correctLevel:QRCode.CorrectLevel.H});
+}
+
+// Render Teacher Attendance Table
+function renderAttendanceTable(){
+  const tbody = document.querySelector('#attendance-table tbody'); tbody.innerHTML='';
+  students.forEach(s=>{
+    const tr=document.createElement('tr');
+    const tdName=document.createElement('td'); tdName.textContent=s;
+    const tdStatus=document.createElement('td'); 
+    tdStatus.innerHTML=`<span class="badge badge-${attendance[s].status}">${attendance[s].status.toUpperCase()}</span>`;
+    const tdAction=document.createElement('td'); 
+    const btn=document.createElement('button'); btn.textContent="Mark Present"; btn.onclick=()=>markAttendance(s);
+    tdAction.appendChild(btn); tr.appendChild(tdName); tr.appendChild(tdStatus); tr.appendChild(tdAction);
+    tbody.appendChild(tr);
+  });
+}
+
+// Filter Attendance
+function filterAttendance(){
+  const nameFilter=document.getElementById('search-name').value.toLowerCase();
+  const statusFilter=document.getElementById('filter-status').value;
+  const tbody=document.querySelector('#attendance-table tbody'); tbody.innerHTML='';
+  students.forEach(s=>{
+    let match=true;
+    if(nameFilter && !s.toLowerCase().includes(nameFilter)) match=false;
+    if(statusFilter && attendance[s].status!==statusFilter) match=false;
+    if(match){
+      const tr=document.createElement('tr');
+      const tdName=document.createElement('td'); tdName.textContent=s;
+      const tdStatus=document.createElement('td'); 
+      tdStatus.innerHTML=`<span class="badge badge-${attendance[s].status}">${attendance[s].status.toUpperCase()}</span>`;
+      const tdAction=document.createElement('td'); 
+      const btn=document.createElement('button'); btn.textContent="Mark Present"; btn.onclick=()=>markAttendance(s);
+      tdAction.appendChild(btn); tr.appendChild(tdName); tr.appendChild(tdStatus); tr.appendChild(tdAction); 
+      tbody.appendChild(tr);
+    }
+  });
+}
+
+// Mark Attendance
+function markAttendance(s){
+  attendance[s].status="present"; attendance[s].sessions.push({session:currentSession,status:"Present"});
+  renderAttendanceTable(); renderAttendanceHistory();
+}
+
+// Render Student History
+function renderAttendanceHistory(){
+  const tbody=document.querySelector('#attendance-history tbody'); tbody.innerHTML='';
+  const selected=studentSelect.value; if(!selected) return;
+  attendance[selected].sessions.forEach(sess=>{
+    const tr=document.createElement('tr'); 
+    const tdSession=document.createElement('td'); tdSession.textContent=sess.session;
+    const tdStatus=document.createElement('td'); tdStatus.innerHTML=`<span class="badge badge-present">${sess.status}</span>`;
+    tr.appendChild(tdSession); tr.appendChild(tdStatus); tbody.appendChild(tr);
+  });
+}
+
+// Scan QR
+function scanQRCode(){
+  const selected = studentSelect.value;
+  if(!selected){ alert("Please select your name!"); return; }
+  markAttendance(selected);
+  document.getElementById('scan-status').textContent = `Attendance marked for ${selected} ✅`;
+}
+
+// Export to CSV
+function exportCSV(){
+  let csv = "Name,Status,Session\n";
+  students.forEach(s=>{
+    const records = attendance[s].sessions.map(sess=>`${s},Present,${sess.session}`).join("\n");
+    csv += records ? records+"\n" : `${s},${attendance[s].status.toUpperCase()},${currentSession}\n`;
+  });
+  const blob = new Blob([csv], { type: "text/csv" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "attendance.csv";
+  link.click();
+}
+
+// Init
+renderAttendanceTable();
+</script>
+
+</body>
+</html>
